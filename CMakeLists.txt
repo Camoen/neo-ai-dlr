@@ -53,6 +53,8 @@ option(USE_CUDA  "Build with CUDA" OFF)
 option(USE_CUBLAS "Build with CUBLAS" OFF)
 option(USE_CUDNN "Build with CUDNN" OFF)
 option(USE_TENSORRT "Build with Tensor RT" OFF)
+option(USE_BLAS "Build with BLAS" OFF)
+option(USE_MKLDNN "Build with MKLDNN" ON)
 
 
 # Use RPATH on Mac OS X as flexible mechanism for locating dependencies
@@ -99,7 +101,79 @@ FILE(GLOB DLR_SRC
     ${TVM_SRC}/src/runtime/dso_library.cc
     ${TVM_SRC}/src/runtime/cpu_device_api.cc
     ${TVM_SRC}/src/runtime/contrib/sort/sort.cc
+    ${TVM_SRC}/src/runtime/contrib/cblas/*.cc
 )
+
+##########
+# Plugin rules for cblas
+#file(GLOB CBLAS_CONTRIB_SRC src/runtime/contrib/cblas/*.cc)
+
+if(USE_BLAS STREQUAL "openblas")
+  find_library(BLAS_LIBRARY openblas)
+  list(APPEND TVM_RUNTIME_LINKER_LIBS ${BLAS_LIBRARY})
+  list(APPEND RUNTIME_SRCS ${CBLAS_CONTRIB_SRC})
+  message(STATUS "Use BLAS library " ${BLAS_LIBRARY})
+elseif(USE_BLAS STREQUAL "mkl")
+  if(NOT IS_DIRECTORY ${USE_MKL_PATH})
+    set(USE_MKL_PATH /opt/intel/mkl)
+  endif()
+  if(APPLE)
+    find_library(BLAS_LIBRARY_MKL NAMES mklml mkl_rt HINTS ${USE_MKL_PATH}/lib/ ${USE_MKL_PATH}/lib/intel64)
+  elseif(UNIX)
+    find_library(BLAS_LIBRARY_MKL NAMES mkl_rt mklml_gnu HINTS ${USE_MKL_PATH}/lib/ ${USE_MKL_PATH}/lib/intel64)
+  elseif(MSVC)
+    find_library(BLAS_LIBRARY_MKL NAMES mkl_rt HINTS ${USE_MKL_PATH}/lib/ ${USE_MKL_PATH}/lib/intel64_win)
+  endif()
+  include_directories(${USE_MKL_PATH}/include)
+  list(APPEND TVM_RUNTIME_LINKER_LIBS ${BLAS_LIBRARY_MKL})
+  list(APPEND RUNTIME_SRCS ${CBLAS_CONTRIB_SRC})
+  add_definitions(-DUSE_MKL_BLAS=1)
+  message(STATUS "Use BLAS library " ${BLAS_LIBRARY_MKL})
+elseif(USE_BLAS STREQUAL "atlas" OR USE_BLAS STREQUAL "blas")
+  find_library(BLAS_LIBRARY cblas)
+  list(APPEND TVM_RUNTIME_LINKER_LIBS ${BLAS_LIBRARY})
+  list(APPEND RUNTIME_SRCS ${CBLAS_CONTRIB_SRC})
+  message(STATUS "Use BLAS library " ${BLAS_LIBRARY})
+elseif(USE_BLAS STREQUAL "apple")
+  find_library(BLAS_LIBRARY Accelerate)
+  include_directories(${BLAS_LIBRARY}/Versions/Current/Frameworks/vecLib.framework/Versions/Current/Headers/)
+  list(APPEND TVM_RUNTIME_LINKER_LIBS ${BLAS_LIBRARY})
+  list(APPEND RUNTIME_SRCS ${CBLAS_CONTRIB_SRC})
+  message(STATUS "Use BLAS library " ${BLAS_LIBRARY})
+elseif(USE_BLAS STREQUAL "none")
+  # pass
+elseif(USE_BLAS STREQUAL "abcde")
+  message(FATAL_ERROR "Invalid option: USE_BLAS=" ${USE_BLAS})
+else()
+  message(FATAL_ERROR "Invalid option: USE_BLAS=" ${USE_BLAS})
+endif()
+
+if(IS_DIRECTORY ${USE_MKLDNN})
+  find_library(MKLDNN_LIBRARY NAMES dnnl HINTS ${USE_MKLDNN}/lib/)
+  if (MKLDNN_LIBRARY STREQUAL "MKLDNN_LIBRARY-NOTFOUND")
+    message(WARNING "Cannot find MKLDNN library at ${USE_MKLDNN}.")
+  else()
+    include_directories(${USE_MKLDNN}/include)
+    list(APPEND TVM_RUNTIME_LINKER_LIBS ${MKLDNN_LIBRARY})
+    add_definitions(-DUSE_DNNL=1)
+    message(STATUS "Use MKLDNN library " ${MKLDNN_LIBRARY})
+  endif()
+elseif(USE_MKLDNN STREQUAL "ON")
+  find_library(MKLDNN_LIBRARY dnnl)
+  if (MKLDNN_LIBRARY STREQUAL "MKLDNN_LIBRARY-NOTFOUND")
+    message(WARNING "Cannot find MKLDNN library. Try to specify the path to MKLDNN library.")
+  else()
+    list(APPEND TVM_RUNTIME_LINKER_LIBS ${MKLDNN_LIBRARY})
+    add_definitions(-DUSE_DNNL=1)
+    message(STATUS "Use MKLDNN library " ${MKLDNN_LIBRARY})
+  endif()
+elseif(USE_MKLDNN STREQUAL "OFF")
+  # pass
+else()
+  message(FATAL_ERROR "Invalid option: USE_MKLDNN=" ${USE_MKLDNN})
+endif()
+##########
+
 
 if(USE_OPENCL)
     message("USING OpenCL")
